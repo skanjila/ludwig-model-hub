@@ -7,5 +7,8 @@ see here: https://docs.google.com/document/d/1WHQXl1uhwAWZHJ9eI3-wtl67ArP6qcRGVZ
 # architecture
 TBD
 
+# building instructions
+We will need to figure this out, current candidates are just running docker build and docker run but i'd be good if we could use doit with poetry to create the builds which includes the docker image.
+
 # Running Instructions
 TBD
