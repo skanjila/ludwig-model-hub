@@ -1,116 +1,87 @@
-from flask import Flask, request, json, Response
-from pymongo import MongoClient
-import logging as log
+import uuid
+from flask import Flask
+from flask import jsonify
+from flask import request
+from flask_pymongo import PyMongo
 
 app = Flask(__name__)
 
+app.config['MONGO_DBNAME'] = 'modelhubdb'
+app.config['MONGO_URI'] = 'mongodb://localhost:27017/modelhubdb'
 
-class LudwigModelHubAPI:
-    def __init__(self, data):
-        log.basicConfig(level=log.DEBUG, format='%(asctime)s %(levelname)s:\n%(message)s\n')
-        # self.client = MongoClient("mongodb://localhost:27017/")  # When only Mongo DB is running on Docker.
-        self.client = MongoClient("mongodb://mymongo_1:27017/")     # When both Mongo and This application is running on
-                                                                    # Docker and we are using Docker Compose
-
-        database = data['database']
-        collection = data['collection']
-        cursor = self.client[database]
-        self.collection = cursor[collection]
-        self.data = data
-
-    def read(self):
-        log.info('Reading Model Data')
-        documents = self.collection.find()
-        output = [{item: data[item] for item in data if item != '_id'} for data in documents]
-        return output
-
-    def write(self, data):
-        log.info('Writing Data')
-        new_document = data['Document']
-        response = self.collection.insert_one(new_document)
-        output = {'Status': 'Successfully Inserted',
-                  'Document_ID': str(response.inserted_id)}
-        return output
-
-    def update(self):
-        log.info('Updating Model Data')
-        filt = self.data['Filter']
-        updated_data = {"$set": self.data['DataToBeUpdated']}
-        response = self.collection.update_one(filt, updated_data)
-        output = {'Status': 'Successfully Updated' if response.modified_count > 0 else "Nothing was updated."}
-        return output
-
-    def delete(self, data):
-        log.info('Deleting Data')
-        filt = data['Filter']
-        response = self.collection.delete_one(filt)
-        output = {'Status': 'Successfully Deleted' if response.deleted_count > 0 else "Document not found."}
-        return output
+mongo = PyMongo(app)
 
 
-@app.route('/')
-def base():
-    return Response(response=json.dumps({"Status": "UP"}),
-                    status=200,
-                    mimetype='application/json')
+@app.route('/models', methods=['GET'])
+def get_all_models():
+  print("retrieving all models")
+  model = mongo.db.models
+  output = []
+  for s in model.find():
+    output.append({'name' : s['name'],
+                   'model_url' : s['model_url'],
+                   'internal_model_id' : s['internal_model_id'],
+                   'version' : s['version'],
+                   'description' : s['description'],
+                   'author' : s['author'],
+                   'namespace' : s['namespace'],
+                   'ludwig_version' : s['ludwig_version']})
+
+  return jsonify({'result' : output})
 
 
-@app.route('/ludwig_model_hub', methods=['GET'])
-def mongo_read():
-    data = request.json
-    if data is None or data == {}:
-        return Response(response=json.dumps({"Error": "Please provide connection information"}),
-                        status=400,
-                        mimetype='application/json')
-    obj1 = LudwigModelHubAPI(data)
-    response = obj1.read()
-    return Response(response=json.dumps(response),
-                    status=200,
-                    mimetype='application/json')
+@app.route('/models/<path:model_url>', methods=['GET'])
+def get_one_model(model_url):
+  model = mongo.db.models
+  s = model.find_one({'model_url' : model_url})
+  if s:
+    output = {'name' : s['name'],
+              'model_url' : s['model_url'],
+              'description' : s['description'],
+               'version' : s['version'],
+              'ludwig_version' : s['ludwig_version'],
+              'internal_model_id' : s['internal_model_id'],
+              'author' : s['author'],
+              'namespace' : s['namespace']}
+  else:
+    output = "No such model"
+  return jsonify({'result' : output})
 
 
-@app.route('/ludwig_model_hub', methods=['POST'])
-def mongo_write():
-    data = request.json
-    if data is None or data == {} or 'Document' not in data:
-        return Response(response=json.dumps({"Error": "Please provide connection information"}),
-                        status=400,
-                        mimetype='application/json')
-    obj1 = LudwigModelHubAPI(data)
-    response = obj1.write(data)
-    return Response(response=json.dumps(response),
-                    status=200,
-                    mimetype='application/json')
+@app.route('/models', methods=['POST'])
+def add_model():
+  model = mongo.db.models
+  model_url = request.json['model_url']
+  name = request.json['name']
+  description = request.json['description']
+  version = request.json['version']
+  ludwig_version = request.json['ludwig_version']
+  internal_model_id = uuid.uuid4()
+  author = request.json['author']
+  namespace = request.json['namespace']
 
-@app.route('/ludwig_model_hub', methods=['PUT'])
-def mongo_update():
-    data = request.json
-    if data is None or data == {} or 'Filter' not in data:
-        return Response(response=json.dumps({"Error": "Please provide connection information"}),
-                        status=400,
-                        mimetype='application/json')
-    obj1 = LudwigModelHubAPI(data)
-    response = obj1.update()
-    return Response(response=json.dumps(response),
-                    status=200,
-                    mimetype='application/json')
+  model_id = model.insert({'name': name,
+                           'model_url': model_url,
+                           'description': description,
+                           'version': version,
+                           'ludwig_version': ludwig_version,
+                           'internal_model_id': internal_model_id,
+                           'author': author,
+                           'namespace': namespace
+                           })
 
+  new_model = model.find_one({'_id': model_id })
+  output = {'name': new_model['name'],
+            'model_url': new_model['model_url'],
+            'description': new_model['description'],
+            'version': new_model['version'],
+            'ludwig_version': new_model['ludwig_version'],
+            'internal_model_id': new_model['internal_model_id'],
+            'author': new_model['author'],
+            'namespace': new_model['namespace']}
 
-@app.route('/ludwig_model_hub', methods=['DELETE'])
-def mongo_delete():
-    data = request.json
-    if data is None or data == {} or 'Filter' not in data:
-        return Response(response=json.dumps({"Error": "Please provide connection information"}),
-                        status=400,
-                        mimetype='application/json')
-    obj1 = LudwigModelHubAPI(data)
-    response = obj1.delete(data)
-    return Response(response=json.dumps(response),
-                    status=200,
-                    mimetype='application/json')
+  return jsonify({'result' : output})
 
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5001, host='0.0.0.0')
-
-
+    app.run(debug=True)
